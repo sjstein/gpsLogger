@@ -8,4 +8,6 @@ Note: In that guide they talk about disabling the system process, but this shoul
 
 Note: For python3, you will also have to : pip3 install gps for the gps module
 
+For systemctl startup, modify the file /etc/default/gpsd to add the serial port to listen on. In most cases:
 
+`DEVICES="/dev/ttyUSB0"`

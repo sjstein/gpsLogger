@@ -6,12 +6,15 @@ from datetime import date
 import socket
 import sys
 import threading
-import time
 
 # Project-locals:
-from aspLibs.aspUtilities import get_interface_devices
+from aspLibs.aspUtilities import get_interface_devices, IntRange
 from aspLibs.aspUtilities import V_HIGH
 from aspLibs.aspUtilities import AspLogger
+
+PORT_LOW = 5000
+PORT_HIGH = 5050
+PORT_DEFAULT = 5015
 
 log = AspLogger(V_HIGH)
 
@@ -24,7 +27,13 @@ parser.add_argument('-i',
                     default='eth0',
                     dest='interface',
                     help='Interface device name to use')
+parser.add_argument('-p', '--port',
+                    default=PORT_DEFAULT,
+                    dest='port',
+                    type=IntRange(PORT_LOW, PORT_HIGH),
+                    help='Port number to listen on')
 args = parser.parse_args()
+port = args.port
 
 # Conditionally import mock or hardware sensor module:
 if args.debug:
@@ -51,7 +60,6 @@ if HOST is None:
 
 # Client handler - meant to be threaded
 def threaded_client(conn, addr, shutdown):
-    timeout = 2  # Counter for back-off / retry
     tname = threading.current_thread().name
     msg_head = '|' + str(tname) + '| '  # Create message header with thread ID
     while not shutdown.is_set():
@@ -113,24 +121,22 @@ def threaded_client(conn, addr, shutdown):
 
 MSG_READ_POS = 'r pos'
 MSG_DISCONNECT = 'discon'
-PORT = 5005  # Server port
 MAXTID = 999  # Maximum TID
 tid = 0  # Thread ID number
 
 # Open port to accept remote requests
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.bind((HOST, PORT))
+    s.bind((HOST, port))
     s.listen(1)
 
     # connect to gps daemon
-    gpsd = gps(mode=WATCH_ENABLE|WATCH_NEWSTYLE)
+    gpsd = gps(mode=WATCH_ENABLE | WATCH_NEWSTYLE)
 
     # Open logging file (append mode) and write header
     fname = str(date.today()) + '_gpsServer.log'
-    log.info('|SUPR| Server started : ' + HOST + '(' + str(PORT) + ')', fname)
+    log.info('|SUPR| Server started : ' + HOST + '(' + str(port) + ')', fname)
 
     retry = 2  # Timer for retries
-
 
     # Main loop
     shutdown_event = threading.Event()

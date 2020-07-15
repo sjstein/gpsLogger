@@ -27,7 +27,9 @@ curr_date = ''
 prog_name = '{' + sys.argv[0] + '}'
 
 # Constants
-PORT = 5005  # TCP port for connection to server
+PORT_LOW = 5000
+PORT_HIGH = 5050
+PORT_DEFAULT = 5015
 
 MSG_READ_POS = b'r pos'
 MSG_DISCONNECT = b'discon'
@@ -46,7 +48,7 @@ MSG_DISCONNECT = b'discon'
 #             exit(-1)
 
 # Set up argument parser
-parser = argparse.ArgumentParser(description='Python script to query a remote server for temperature and pressure\
+parser = argparse.ArgumentParser(description='Python script to query a remote server for GPS data\
  data, and optionally write that data to a text file.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('serverIP', help='IP Number of server.')
 parser.add_argument('-l', '--log', help='File name for logging (default is NO logging).')
@@ -56,9 +58,15 @@ parser.add_argument('-t', '--time', help='Time (in minutes) to run (-1 denotes r
 0 denotes run for one iteration).', type=IntRange(-1,), default=run_time)
 parser.add_argument('-v', '--verbosity', help='Verbosity level 0 (silent) to 3 (most verbose).',
                     type=IntRange(V_NONE, V_HIGH), default=V_HIGH)
+parser.add_argument('-p', '--port',
+                    default=PORT_DEFAULT,
+                    dest='port',
+                    type=IntRange(PORT_LOW, PORT_HIGH),
+                    help='Port number used to connect to remote server')
 
 # Read arguments passed on command line
 args = parser.parse_args()
+port = args.port
 fname = ''  # filename to log to
 # create logging methods based on verbosity level
 log = AspLogger(args.verbosity)
@@ -86,19 +94,19 @@ if logging:
 # Write initial parameters to console
 log.info('Acquisition started with following parameters:')
 if logging:
-    log.info('     Saving to file     : ' + fname)
-log.info('     Server IP#         : ' + server_addr)
-log.info('     Logging frequency  : ' + str(archive_freq) + ' seconds')
+    log.info(f'     Saving to file     : {fname}')
+log.info(f'     Server IP#         : {server_addr}({port})')
+log.info(f'     Logging frequency  : {archive_freq} seconds')
 if run_time == -1:
     log.info('     Acquiring data until stopped via user interrupt (ctrl-c)')
 elif run_time == 0:
     log.info('     Acquiring data for one iteration')
 else:
-    log.info('     Acquiring data for : ' + str(run_time) + ' minutes')
+    log.info(f'     Acquiring data for : {run_time} minutes')
 log.info('')
 # Set up socket for messages
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-retry_connect(logobj=log, sock=s, saddr=server_addr, sport=PORT)
+retry_connect(logobj=log, sock=s, saddr=server_addr, sport=port)
 
 # Main Loop
 while True:
@@ -116,9 +124,9 @@ while True:
             f.write(data_line + '\n')
             f.close()
         if run_time < 0:
-            log.info('Run time       : ' + str(accum_time) + ' seconds')
+            log.info(f'Run time       :  {accum_time} seconds')
         else:
-            log.info('Run time       : ' + str(accum_time) + ' of ' + str(int(run_time) * 60) + ' seconds')
+            log.info(f'Run time       : {accum_time} of {int(run_time) * 60} seconds')
         log.info(f'Current position : {lat.decode("utf-8")} , {lon.decode("utf-8")}')
         log.info('')
 
@@ -134,13 +142,13 @@ while True:
         log.warn(f'Problem connecting to server: {exc}')
         s.close()
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        retry_connect(logobj=log, sock=s, saddr=server_addr, sport=PORT)
+        retry_connect(logobj=log, sock=s, saddr=server_addr, sport=port)
 
     except socket.timeout:
         log.warn('Timeout waiting for server response.')
 
     except IndexError:
-        log.warn('Malformed message from server : ' + data.decode('utf-8'))
+        log.warn(f'Malformed message from server : {data.decode("utf-8")}')
 
     except KeyboardInterrupt:
         if logging:

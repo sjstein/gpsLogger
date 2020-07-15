@@ -9,12 +9,20 @@ def getPositionData(gpsd):
     # For a list of all supported classes and fields refer to:
     # https://gpsd.gitlab.io/gpsd/gpsd_json.html
     if nx['class'] == 'TPV':
-        latitude = getattr(nx,'lat', "Unknown")
-        longitude = getattr(nx,'lon', "Unknown")
-        print(f'Your position: lon = {longitude} , lat = {latitude}')
+        latitude = getattr(nx, 'lat', "Unknown")
+        longitude = getattr(nx, 'lon', "Unknown")
+        gps_time = getattr(nx, 'time', "Unknown")
+        print(f'At {gps_time}, your position: lat = {latitude} , lon = {longitude}')
+
+    if nx['class'] == 'SKY':
+        satellites = getattr(nx, 'satellites', "")
+        print(f'Found {len(satellites)} satellites with the following info:')
+        for satellite in satellites:
+            print(f'Number {i} : ID#{satellite.PRN}, at {satellite.az}N and elevation {satellite.el}, s/n: '
+                  f'{satellite.ss}')
 
 
-gpsd = gps(mode=WATCH_ENABLE|WATCH_NEWSTYLE)
+gpsd = gps(mode=WATCH_ENABLE | WATCH_NEWSTYLE)
 
 try:
     print('Program started')
@@ -23,5 +31,5 @@ try:
         time.sleep(1.0)
 
 except (KeyboardInterrupt):
-    running = Falsek
+    running = False
     print('Program complete')
