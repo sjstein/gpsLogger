@@ -5,7 +5,7 @@ import sys
 
 # Project-locals
 from aspLibs.aspUtilities import valid_ip, IntRange, retry_connect
-from aspLibs.aspUtilities import V_NONE, V_MED, V_HIGH
+from aspLibs.aspUtilities import V_NONE, V_HIGH
 from aspLibs.aspUtilities import AspLogger
 
 
@@ -34,19 +34,6 @@ PORT_DEFAULT = 5015
 MSG_READ_POS = b'r pos'
 MSG_READ_SAT = b'r sat'
 MSG_DISCONNECT = b'discon'
-
-
-# def retry_connect(clog, saddr=None, sport=None):
-#     e = s.connect_ex((saddr, sport))
-#     while e != 0:
-#         try:
-#             clog.warn(f'Unable to connect to server (err: {e}). Delaying before retry.')
-#             time.sleep(10)
-#             e = s.connect_ex((saddr, sport))
-#
-#         except KeyboardInterrupt:
-#             clog.warn('Program termination via user interrupt.')
-#             exit(-1)
 
 # Set up argument parser
 parser = argparse.ArgumentParser(description='Python script to query a remote server for GPS data\
@@ -77,7 +64,7 @@ log = AspLogger(args.verbosity)
 server_addr = args.serverIP  # Server IP  - not optional
 
 if not (valid_ip(server_addr)):
-    log.erro('IP address ' + server_addr + ' invalid. Exiting.')
+    log.erro(f'IP address {server_addr} invalid. Exiting.')
     exit(-1)
 if args.log is not None:  # Log filename - optional
     fname = args.log
@@ -130,11 +117,15 @@ while True:
 
             # Do not log any time info for single-iteration run (run_time = 0)
             if run_time < 0:
-                log.info(f'Run time       :  {accum_time} seconds')
+                log.info(f'Run time:  {accum_time} seconds')
             elif run_time > 0:
-                log.info(f'Run time       : {accum_time} of {int(run_time) * 60} seconds')
+                log.info(f'Run time: {accum_time} of {int(run_time) * 60} seconds')
 
-            log.info(f'Showing info for {len(satellites)} visible satellites at {gps_time}:')
+            log.info(f'Found {len(satellites)} visible satellites')
+            gdate = gps_time.split('T')[0]
+            gtime = gps_time.split('T')[1].split('.')[0]
+            log.info(f'GPS date: {gdate}')
+            log.info(f'GPS time: {gtime}Z')
             for satellite in satellites:
                 elem = satellite.split(',')  # type : List[str]
                 # data in format : Sat #, azimuth, elevation, s/n ratio
@@ -147,7 +138,8 @@ while True:
                     f = open(fname, 'a')
                     f.write(data_line + '\n')
                     f.close()
-                log.info(f'Sat # {s_num}: {s_az}N, {s_el}deg, s/n({s_ss})')
+                log.info(f'Sat #{s_num:0>3}: {s_az:0>3}\N{DEGREE SIGN}az, {s_el:0>2}\N{DEGREE SIGN}el,'
+                         f' s/n({s_ss:0>2})')
             log.info('')
 
             if (run_time > 0) and (accum_time >= int(run_time) * 60) or run_time == 0:
@@ -188,7 +180,6 @@ while True:
             gtm = elem[0]
             lat = elem[1]
             lon = elem[2]
-            alt = elem[3]
 
             if logging:
                 data_line = f'{log.timestamp()},{data.decode("utf-8")}'
@@ -196,10 +187,11 @@ while True:
                 f.write(data_line + '\n')
                 f.close()
             if run_time < 0:
-                log.info(f'Run time       :  {accum_time} seconds')
+                log.info(f'Run time:  {accum_time} seconds')
             else:
-                log.info(f'Run time       : {accum_time} of {int(run_time) * 60} seconds')
-            log.info(f'GPS time: {gtm}, GPS position: {lat},{lon} @ {alt} meters')
+                log.info(f'Run time: {accum_time} of {int(run_time) * 60} seconds')
+            log.info(f'GPS time: {gtm}')
+            log.info(f'GPS position: {lat},{lon}')
             log.info('')
 
             if (run_time > 0) and (accum_time >= int(run_time) * 60) or run_time == 0:
@@ -231,4 +223,3 @@ while True:
             else:
                 log.warn('Unexpected program termination via user interrupt.')
                 exit(-1)
-
