@@ -15,11 +15,12 @@ def getPositionData(gpsd):
         print(f'At {gps_time}, your position: lat = {latitude} , lon = {longitude}')
 
     if nx['class'] == 'SKY':
+        sat_time = getattr(nx, 'time', "")
         satellites = getattr(nx, 'satellites', "")
         print(f'Found {len(satellites)} satellites with the following info:')
         for satellite in satellites:
-            print(f'Number {i} : ID#{satellite.PRN}, at {satellite.az}N and elevation {satellite.el}, s/n: '
-                  f'{satellite.ss}')
+            print(f'ID#{satellite.PRN}, at {satellite.az}N and elevation {satellite.el}, s/n: '
+                  f'{satellite.ss} @ {sat_time}')
 
 
 gpsd = gps(mode=WATCH_ENABLE | WATCH_NEWSTYLE)

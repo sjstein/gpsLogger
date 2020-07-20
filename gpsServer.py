@@ -40,7 +40,8 @@ if args.debug:
     log.disp('\n    *** WARNING ***     ')
     log.disp('Operating in DEBUG mode!')
     log.disp(' USING MOCK SENSOR DATA \n')
-    # import dummy data server
+    # import dummy data server here - TBD
+    log.disp('**NOTE** THIS IS NO CURRENTLY IMPLEMENTED')
 else:
     from gps import *
 
@@ -83,11 +84,43 @@ def threaded_client(conn, addr, shutdown):
                     time.sleep(0.5)
                     nx = gpsd.next()
                     # Need a timeout escape
+                gps_time = getattr(nx, 'time', "Unknown")
                 latitude = getattr(nx, 'lat', "Unknown")
                 longitude = getattr(nx, 'lon', "Unknown")
-                data = str(latitude) + ',' + str(longitude)
+                altitude = getattr(nx, 'altHAE', "Unknown")
+                data = f'{gps_time},{latitude},{longitude},{altitude}'
                 log.info(msg_head + 'Server sent: ' + data, fname)
                 conn.send(data.encode())
+
+            except OSError as msg:
+                # This exception will cover various socket errors such as a broken pipe (client disconnect)
+                log.erro(msg_head + 'Unexpected error (' + str(msg) + ') connection closed from client : '
+                         + str(addr), fname)
+                conn.close()
+                return -1
+
+        elif str(data.decode('utf-8')).startswith(MSG_READ_SAT):
+            log.info(msg_head + 'SAT_INFO request from client : ' + str(addr), fname)
+            try:
+                nx = gpsd.next()
+                # For a list of all supported classes and fields refer to:
+                # https://gpsd.gitlab.io/gpsd/gpsd_json.html
+                while nx['class'] != 'SKY':     # Wait for the proper message to roll around
+                    time.sleep(0.5)
+                    nx = gpsd.next()
+                    # Need a timeout escape
+                sat_time = getattr(nx, 'time', "")
+                satellites = getattr(nx, 'satellites', "")
+                num_sat = len(satellites)
+                log.info(f'{msg_head} Found {num_sat} satellites')
+                conn.send(sat_time.encode())    # Send GPS time info from this record
+                msg = ''
+                for satellite in satellites:
+                    msg += f'{satellite.PRN},{satellite.az},{satellite.el},{satellite.ss}|'
+                    # data in format : Sat #, azimuth, elevation, s/n ratio
+                msg = msg[:-1]  # Remove trailing delimiter
+                log.info(f'{msg_head} Server sent: {msg}', fname)
+                conn.send(msg.encode())
 
             except OSError as msg:
                 # This exception will cover various socket errors such as a broken pipe (client disconnect)
@@ -120,7 +153,9 @@ def threaded_client(conn, addr, shutdown):
 # Main program begins
 
 MSG_READ_POS = 'r pos'
+MSG_READ_SAT = 'r sat'
 MSG_DISCONNECT = 'discon'
+
 MAXTID = 999  # Maximum TID
 tid = 0  # Thread ID number
 

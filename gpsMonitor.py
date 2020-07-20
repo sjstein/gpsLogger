@@ -32,6 +32,7 @@ PORT_HIGH = 5050
 PORT_DEFAULT = 5015
 
 MSG_READ_POS = b'r pos'
+MSG_READ_SAT = b'r sat'
 MSG_DISCONNECT = b'discon'
 
 
@@ -56,6 +57,7 @@ parser.add_argument('-f', '--freq', help='Frequency (in seconds) to read data.',
                     type=IntRange(1,), default=archive_freq)
 parser.add_argument('-t', '--time', help='Time (in minutes) to run (-1 denotes run forever, \
 0 denotes run for one iteration).', type=IntRange(-1,), default=run_time)
+parser.add_argument('-s', '--sat', help='Get info on visible satellites.', action='store_true')
 parser.add_argument('-v', '--verbosity', help='Verbosity level 0 (silent) to 3 (most verbose).',
                     type=IntRange(V_NONE, V_HIGH), default=V_HIGH)
 parser.add_argument('-p', '--port',
@@ -89,7 +91,10 @@ if args.time is not None:  # Run duration (minutes) - optional (default defined 
 if logging:
     # Open the file and write the header
     f = open(fname, 'a')
-    f.write('Date Time,Press(mBar),Temp(c),Depth(m)\n')
+    if args.sat:
+        f.write('Date Sat #,Azimuth,Elevation (deg),Signal (s/n)\n')
+    else:
+        f.write('Date Time,Press(mBar),Temp(c),Depth(m)\n')
 
 # Write initial parameters to console
 log.info('Acquisition started with following parameters:')
@@ -110,53 +115,120 @@ retry_connect(logobj=log, sock=s, saddr=server_addr, sport=port)
 
 # Main Loop
 while True:
-    try:
-        s.sendall(MSG_READ_POS)
-        data = s.recv(1024)
-        # populate list with elements of pressure, temperature
-        elem = data.split(b',')  # type : List[str]
-        lat = elem[0]
-        lon = elem[1]
+    if args.sat:
+        try:
+            s.sendall(MSG_READ_SAT)
+            tdata = s.recv(1024)    # First grab GPS time from stream
+            gps_time = tdata.decode("utf-8")
+            if logging:
+                data_line = f'{log.timestamp()} GPS time: {gps_time}'
+                f = open(fname, 'a')
+                f.write(data_line + '\n')
+                f.close()
+            data = s.recv(1024)     # Retrieve the satellite records **BLOCKS**
+            satellites = data.decode().split('|')
 
-        if logging:
-            data_line = f'{log.timestamp()},{data.decode("utf-8")}'
-            f = open(fname, 'a')
-            f.write(data_line + '\n')
-            f.close()
-        if run_time < 0:
-            log.info(f'Run time       :  {accum_time} seconds')
-        else:
-            log.info(f'Run time       : {accum_time} of {int(run_time) * 60} seconds')
-        log.info(f'Current position : {lat.decode("utf-8")} , {lon.decode("utf-8")}')
-        log.info('')
+            # Do not log any time info for single-iteration run (run_time = 0)
+            if run_time < 0:
+                log.info(f'Run time       :  {accum_time} seconds')
+            elif run_time > 0:
+                log.info(f'Run time       : {accum_time} of {int(run_time) * 60} seconds')
 
-        if (run_time > 0) and (accum_time >= int(run_time) * 60) or run_time == 0:
-            log.info('Acquisition complete.')
-            s.sendall(MSG_DISCONNECT)
+            log.info(f'Showing info for {len(satellites)} visible satellites at {gps_time}:')
+            for satellite in satellites:
+                elem = satellite.split(',')  # type : List[str]
+                # data in format : Sat #, azimuth, elevation, s/n ratio
+                s_num = elem[0]
+                s_az = elem[1]
+                s_el = elem[2]
+                s_ss = elem[3]
+                if logging:
+                    data_line = f'{log.timestamp()} {elem[0]},{elem[1]},{elem[2]},{elem[3]}'
+                    f = open(fname, 'a')
+                    f.write(data_line + '\n')
+                    f.close()
+                log.info(f'Sat # {s_num}: {s_az}N, {s_el}deg, s/n({s_ss})')
+            log.info('')
+
+            if (run_time > 0) and (accum_time >= int(run_time) * 60) or run_time == 0:
+                log.info('Acquisition complete.')
+                s.sendall(MSG_DISCONNECT)
+                s.close()
+                exit(0)
+            time.sleep(archive_freq)
+            accum_time += archive_freq
+
+        except ConnectionError as exc:
+            log.warn(f'Problem connecting to server: {exc}')
             s.close()
-            exit(0)
-        time.sleep(archive_freq)
-        accum_time += archive_freq
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            retry_connect(logobj=log, sock=s, saddr=server_addr, sport=port)
 
-    except ConnectionError as exc:
-        log.warn(f'Problem connecting to server: {exc}')
-        s.close()
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        retry_connect(logobj=log, sock=s, saddr=server_addr, sport=port)
+        except socket.timeout:
+            log.warn('Timeout waiting for server response.')
 
-    except socket.timeout:
-        log.warn('Timeout waiting for server response.')
+        except IndexError:
+            log.warn(f'Malformed message from server : {data.decode("utf-8")}')
 
-    except IndexError:
-        log.warn(f'Malformed message from server : {data.decode("utf-8")}')
+        except KeyboardInterrupt:
+            if logging:
+                f.close()
+            if run_time <= 0:
+                log.info('Program terminated via user interrupt.')
+                exit(0)
+            else:
+                log.warn('Unexpected program termination via user interrupt.')
+                exit(-1)
 
-    except KeyboardInterrupt:
-        if logging:
-            f.close()
-        if run_time <= 0:
-            log.info('Program terminated via user interrupt.')
-            exit(0)
-        else:
-            log.warn('Unexpected program termination via user interrupt.')
-            exit(-1)
+    else:   # Must be a READ_POS request
+        try:
+            s.sendall(MSG_READ_POS)
+            data = s.recv(1024)
+            elem = data.decode("utf-8").split(',')  # type : List[str]
+            gtm = elem[0]
+            lat = elem[1]
+            lon = elem[2]
+            alt = elem[3]
+
+            if logging:
+                data_line = f'{log.timestamp()},{data.decode("utf-8")}'
+                f = open(fname, 'a')
+                f.write(data_line + '\n')
+                f.close()
+            if run_time < 0:
+                log.info(f'Run time       :  {accum_time} seconds')
+            else:
+                log.info(f'Run time       : {accum_time} of {int(run_time) * 60} seconds')
+            log.info(f'GPS time: {gtm}, GPS position: {lat},{lon} @ {alt} meters')
+            log.info('')
+
+            if (run_time > 0) and (accum_time >= int(run_time) * 60) or run_time == 0:
+                log.info('Acquisition complete.')
+                s.sendall(MSG_DISCONNECT)
+                s.close()
+                exit(0)
+            time.sleep(archive_freq)
+            accum_time += archive_freq
+
+        except ConnectionError as exc:
+            log.warn(f'Problem connecting to server: {exc}')
+            s.close()
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            retry_connect(logobj=log, sock=s, saddr=server_addr, sport=port)
+
+        except socket.timeout:
+            log.warn('Timeout waiting for server response.')
+
+        except IndexError:
+            log.warn(f'Malformed message from server : {data.decode("utf-8")}')
+
+        except KeyboardInterrupt:
+            if logging:
+                f.close()
+            if run_time <= 0:
+                log.info('Program terminated via user interrupt.')
+                exit(0)
+            else:
+                log.warn('Unexpected program termination via user interrupt.')
+                exit(-1)
 
