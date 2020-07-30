@@ -31,6 +31,8 @@ PORT_LOW = 5000
 PORT_HIGH = 5050
 PORT_DEFAULT = 5015
 
+GPSD_PORT = 2947
+
 MSG_READ_POS = b'r pos'
 MSG_READ_SAT = b'r sat'
 MSG_DISCONNECT = b'discon'
@@ -52,6 +54,9 @@ parser.add_argument('-p', '--port',
                     dest='port',
                     type=IntRange(PORT_LOW, PORT_HIGH),
                     help='Port number used to connect to remote server')
+parser.add_argument('-d', '--direct', help='Connect direct to gpsd daemon instead of through server. \n\n'
+                          f'**NOTE** -p(ort) argument is ignored in this case as gpsd daemon uses port {GPSD_PORT}',
+                    action='store_true')
 
 # Read arguments passed on command line
 args = parser.parse_args()
@@ -74,6 +79,8 @@ if args.freq is not None:  # Read frequency (seconds) - optional (default define
     archive_freq = args.freq
 if args.time is not None:  # Run duration (minutes) - optional (default defined above)
     run_time = args.time
+if args.direct:
+    from gps import *
 
 if logging:
     # Open the file and write the header
@@ -81,7 +88,7 @@ if logging:
     if args.sat:
         f.write('Date Sat #,Azimuth,Elevation (deg),Signal (s/n)\n')
     else:
-        f.write('Date Time,Press(mBar),Temp(c),Depth(m)\n')
+        f.write('Date Time,Lat,Lon\n')
 
 # Write initial parameters to console
 log.info('Acquisition started with following parameters:')
@@ -97,23 +104,40 @@ else:
     log.info(f'     Acquiring data for : {run_time} minutes')
 log.info('')
 # Set up socket for messages
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-retry_connect(logobj=log, sock=s, saddr=server_addr, sport=port)
+if args.direct is not True: # This is a server connection
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    retry_connect(logobj=log, sock=s, saddr=server_addr, sport=port)
 
 # Main Loop
 while True:
     if args.sat:
         try:
-            s.sendall(MSG_READ_SAT)
-            tdata = s.recv(1024)    # First grab GPS time from stream
-            gps_time = tdata.decode("utf-8")
+            if args.direct:     # Requesting satellite data direct from gps daemon
+                gpsd = gps(host=server_addr, port=GPSD_PORT, mode=WATCH_ENABLE | WATCH_NEWSTYLE)
+                while True:
+                    nx = gpsd.next()  # Loop through messages for TPV
+                    if nx['class'] == 'SKY':  # Wait for the proper message to roll around
+                        gps_time = getattr(nx, 'time', "")
+                        sat_dict = getattr(nx, 'satellites', "")
+                        num_sat = len(sat_dict)
+                        satellites = list()
+                        for sat in sat_dict:
+                            satellites.append(f'{sat.PRN},{sat.az},{sat.el},{sat.ss}')
+                        gpsd.close()
+                        break
+
+            else:   # Requesting data from gps server
+                s.sendall(MSG_READ_SAT)
+                tdata = s.recv(1024)    # First grab GPS time from stream
+                gps_time = tdata.decode("utf-8")
+                data = s.recv(1024).decode()  # Retrieve the satellite records **BLOCKS**
+                satellites = data.split('|')  # Create the list of satellites
+
             if logging:
                 data_line = f'{log.timestamp()} GPS time: {gps_time}'
                 f = open(fname, 'a')
                 f.write(data_line + '\n')
                 f.close()
-            data = s.recv(1024)     # Retrieve the satellite records **BLOCKS**
-            satellites = data.decode().split('|')
 
             # Do not log any time info for single-iteration run (run_time = 0)
             if run_time < 0:
@@ -174,15 +198,27 @@ while True:
 
     else:   # Must be a READ_POS request
         try:
-            s.sendall(MSG_READ_POS)
-            data = s.recv(1024)
-            elem = data.decode("utf-8").split(',')  # type : List[str]
-            gtm = elem[0]
-            lat = elem[1]
-            lon = elem[2]
+            if args.direct:     # Direct connection to gpsd
+                gpsd = gps(host=server_addr, port=GPSD_PORT, mode=WATCH_ENABLE | WATCH_NEWSTYLE)
+                while True:
+                    nx = gpsd.next()  # Loop through messages for TPV
+                    if nx['class'] == 'TPV':
+                        lat = getattr(nx, 'lat', "Unknown")
+                        lon = getattr(nx, 'lon', "Unknown")
+                        gtm = getattr(nx, 'time', "Unknown")
+                        data = f'{lat},{lon}'
+                        break
+                gpsd.close()    # Must close daemon connection to flush buffer
+            else:   # Connecting to gps server
+                s.sendall(MSG_READ_POS)
+                data = s.recv(1024).decode("utf-8")
+                elem = data.split(',')  # type : List[str]
+                gtm = elem[0]
+                lat = elem[1]
+                lon = elem[2]
 
             if logging:
-                data_line = f'{log.timestamp()},{data.decode("utf-8")}'
+                data_line = f'{log.timestamp()},{data}'
                 f = open(fname, 'a')
                 f.write(data_line + '\n')
                 f.close()
