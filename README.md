@@ -11,3 +11,6 @@ Note: For python3, you will also have to : pip3 install gps for the gps module
 For systemctl startup, modify the file /etc/default/gpsd to add the serial port to listen on. In most cases:
 
 `DEVICES="/dev/ttyUSB0"`
+
+Note: For running the client (gpsMonitor) in direct (-d) mode, you will need to have the gps library installed on the client machine:
+`python3 -m pip install gps`
