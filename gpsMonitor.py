@@ -38,8 +38,9 @@ MSG_READ_SAT = b'r sat'
 MSG_DISCONNECT = b'discon'
 
 # Set up argument parser
-parser = argparse.ArgumentParser(description='Python script to query a remote server for GPS data\
- data, and optionally write that data to a text file.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+# noinspection PyTypeChecker
+parser = argparse.ArgumentParser(description='Python script to query a remote server for GPS data,\
+ and optionally write that data to a text file.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('serverIP', help='IP Number of server.')
 parser.add_argument('-l', '--log', help='File name for logging (default is NO logging).')
 parser.add_argument('-f', '--freq', help='Frequency (in seconds) to read data.',
@@ -54,7 +55,7 @@ parser.add_argument('-p', '--port',
                     dest='port',
                     type=IntRange(PORT_LOW, PORT_HIGH),
                     help='Port number used to connect to remote server')
-parser.add_argument('-d', '--direct', help='Connect direct to gpsd daemon instead of through server. \n\n'
+parser.add_argument('-d', '--direct', help='Connect direct to gpsd daemon instead of through server. \n'
                           f'**NOTE** -p(ort) argument is ignored in this case as gpsd daemon uses port {GPSD_PORT}',
                     action='store_true')
 
@@ -104,7 +105,7 @@ else:
     log.info(f'     Acquiring data for : {run_time} minutes')
 log.info('')
 # Set up socket for messages
-if args.direct is not True: # This is a server connection
+if not args.direct:  # This is a server connection
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     retry_connect(logobj=log, sock=s, saddr=server_addr, sport=port)
 
@@ -168,8 +169,9 @@ while True:
 
             if (run_time > 0) and (accum_time >= int(run_time) * 60) or run_time == 0:
                 log.info('Acquisition complete.')
-                s.sendall(MSG_DISCONNECT)
-                s.close()
+                if not args.direct:
+                    s.sendall(MSG_DISCONNECT)
+                    s.close()
                 exit(0)
             time.sleep(archive_freq)
             accum_time += archive_freq
@@ -232,8 +234,9 @@ while True:
 
             if (run_time > 0) and (accum_time >= int(run_time) * 60) or run_time == 0:
                 log.info('Acquisition complete.')
-                s.sendall(MSG_DISCONNECT)
-                s.close()
+                if not args.direct:
+                    s.sendall(MSG_DISCONNECT)
+                    s.close()
                 exit(0)
             time.sleep(archive_freq)
             accum_time += archive_freq
